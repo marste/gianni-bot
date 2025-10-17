@@ -4,6 +4,7 @@ import yfinance as yf
 from newsapi import NewsApiClient
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+import openai
 
 # === LOGGING ===
 logging.basicConfig(
@@ -12,11 +13,12 @@ logging.basicConfig(
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-if not BOT_TOKEN:
-    raise ValueError("❌ Variabile BOT_TOKEN mancante su Render!")
+if not BOT_TOKEN or not OPENAI_API_KEY or not NEWSAPI_KEY:
+    raise ValueError("❌ Assicurati di avere BOT_TOKEN, NEWSAPI_KEY e OPENAI_API_KEY impostati!")
 
-# === NEWSAPI ===
+openai.api_key = OPENAI_API_KEY
 newsapi = NewsApiClient(api_key=NEWSAPI_KEY)
 
 # === DATI BORSA ===
@@ -58,24 +60,33 @@ def get_finance_news():
         logging.error(f"Errore recupero news: {e}")
         return []
 
-# === ANALISI SINTETICA ===
-def summarize_market_news(news_list):
-    if not news_list:
-        return "Nessuna notizia significativa per spiegare i movimenti dei mercati oggi."
+# === ANALISI GPT ===
+def generate_market_analysis(data, news_list, period="giornaliero"):
+    news_text = "\n".join(news_list) if news_list else "Nessuna notizia rilevante."
+    market_text = "\n".join([f"{k}: {v}%" for k, v in data.items() if v is not None])
 
-    # Soluzione heuristica: individua parole chiave tipiche e costruisce frase sintetica
-    bullish_words = ["increase", "rise", "gain", "up", "strong"]
-    bearish_words = ["drop", "fall", "decline", "down", "weak", "risk", "inflation"]
+    prompt = f"""
+Sei un analista finanziario professionista.
+Analizza i mercati finanziari {period} basandoti sui seguenti dati:
+{market_text}
 
-    bullish_count = sum(any(w in n.lower() for w in bullish_words) for n in news_list)
-    bearish_count = sum(any(w in n.lower() for w in bearish_words) for n in news_list)
+Le ultime notizie economiche:
+{news_text}
 
-    if bullish_count > bearish_count:
-        return "📈 I mercati mostrano tendenze positive oggi, supportati da notizie economiche favorevoli."
-    elif bearish_count > bullish_count:
-        return "📉 I mercati mostrano pressione al ribasso oggi, influenzati da notizie economiche negative."
-    else:
-        return "⚖️ Mercati stabili, senza segnali chiari dalle principali notizie economiche."
+Scrivi un breve report sintetico in italiano spiegando le ragioni dei movimenti principali dei mercati. Mantieni il linguaggio chiaro e conciso, massimo 5 righe.
+"""
+
+    try:
+        response = openai.Completion.create(
+            model="text-davinci-003",
+            prompt=prompt,
+            temperature=0.6,
+            max_tokens=200
+        )
+        return response.choices[0].text.strip()
+    except Exception as e:
+        logging.error(f"Errore GPT: {e}")
+        return "Non sono riuscito a generare l'analisi in questo momento."
 
 # === COMANDI TELEGRAM ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -89,25 +100,28 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def oggi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = get_market_data()
     news_list = get_finance_news()
+    analysis = generate_market_analysis(data, news_list, period="giornaliero")
 
     msg = "📊 **Sintesi giornaliera dei mercati:**\n"
     for k, v in data.items():
         arrow = "🔺" if v and v > 0 else "🔻"
         msg += f"{k}: {arrow} {v}%\n" if v is not None else f"{k}: dati non disponibili\n"
 
-    msg += "\n" + summarize_market_news(news_list)
+    msg += "\n" + analysis
     await update.message.reply_text(msg)
 
 async def settimana(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = "📅 **Sintesi settimanale:**\n"
     data = get_market_data()
+    news_list = get_finance_news()
+    analysis = generate_market_analysis(data, news_list, period="settimanale")
+
+    msg = "📅 **Sintesi settimanale:**\n"
     for k, v in data.items():
         arrow = "🔺" if v and v > 0 else "🔻"
-        msg += f"{k}: {arrow} {v}% (variazione giornaliera)\n"
+        msg += f"{k}: {arrow} {v}% (variazione giornaliera)\n" if v is not None else f"{k}: dati non disponibili\n"
 
-    news_list = get_finance_news()
     msg += "\n📰 Ultime notizie:\n" + "\n".join(news_list[:3])
-    msg += "\n\n" + summarize_market_news(news_list)
+    msg += "\n\n" + analysis
     await update.message.reply_text(msg)
 
 # === MAIN ===
