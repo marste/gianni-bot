@@ -3,7 +3,7 @@ import yfinance as yf
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = os.getenv("8408208271:AAFKoiAi828LjtPCzZdU3tXlirV0Gt8kK7Q")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Ciao! Sono GIANNI 📊 Il tuo analista virtuale dei mercati finanziari.")
