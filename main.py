@@ -1,66 +1,63 @@
 import os
 import logging
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackContext, MessageHandler, filters
 import openai
+from fastapi import FastAPI
+from mangum import Mangum  # se vuoi adattare per AWS Lambda, opzionale
 
-# ===================== CONFIG =====================
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+# Configurazione logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
-if not BOT_TOKEN:
-    raise ValueError("⚠️ TELEGRAM_BOT_TOKEN non impostato!")
-if not OPENAI_API_KEY:
-    raise ValueError("⚠️ OPENAI_API_KEY non impostato!")
+# Chiavi da variabili d'ambiente
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # es: https://gianni-bot-ijwl.onrender.com/webhook
 
 openai.api_key = OPENAI_API_KEY
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
-# ===================== FUNZIONI =====================
+# Funzioni bot
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Ciao! 🤖 GIANNI è online e in ascolto.")
+    await update.message.reply_text("🤖 Ciao! Sono GIANNI, il tuo bot finanziario.")
 
-async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Genera un report sintetico dei mercati di oggi.
-    Solo testo in italiano, massimo 10 righe.
-    """
-    await update.message.reply_text("Generazione report in corso... ⏳")
-
-    prompt = (
-        "Fornisci un breve report sintetico dei principali movimenti dei mercati finanziari di oggi. "
-        "Scrivi in italiano, linguaggio chiaro e conciso, massimo 10 righe. "
-        "Non includere valori degli indici, solo le ragioni dei movimenti principali."
-    )
-
+async def sintesi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        response = openai.ChatCompletion.create(
+        response = openai.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=300,
-            temperature=0.5
+            messages=[
+                {"role": "system", "content": "Sei un analista finanziario sintetico."},
+                {"role": "user", "content": "Genera un breve report in italiano sui principali movimenti dei mercati di oggi (massimo 10 righe)."}
+            ]
         )
-        report_text = response.choices[0].message.content.strip()
-        await update.message.reply_text(f"**Sintesi giornaliera dei mercati:**\n{report_text}", parse_mode="Markdown")
+        text = response.choices[0].message.content
     except Exception as e:
-        logger.error(f"Errore durante la generazione del report: {e}")
-        await update.message.reply_text("❌ Errore durante la generazione del report.")
+        text = f"Errore durante la generazione del report: {e}"
+    await update.message.reply_text(text)
 
-# ===================== MAIN =====================
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+# Creazione applicazione Telegram
+app = ApplicationBuilder().token(BOT_TOKEN).build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("oggi", sintesi))
 
-    # Comandi
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("report", report))
+# Configurazione FastAPI per webhook
+fastapi_app = FastAPI()
 
-    logger.info("🤖 GIANNI è online e in ascolto...")
-    # Su Render NON usare asyncio.run()
-    app.run_polling(stop_signals=None)  # stop_signals=None evita conflitti con il loop già esistente
+@fastapi_app.post("/webhook")
+async def webhook(update: dict):
+    telegram_update = Update.de_json(update, app.bot)
+    await app.update_queue.put(telegram_update)
+    return {"ok": True}
+
+# Avvio webhook su Telegram
+async def main():
+    await app.bot.set_webhook(WEBHOOK_URL)
+
+import uvicorn
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
+    uvicorn.run(fastapi_app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
