@@ -57,8 +57,13 @@ async def main():
 
     print("🤖 GIANNI è online e in ascolto...")
 
-    # ✅ Questo è il modo corretto e moderno
-    await app.run_polling(close_loop=False)
+    await app.run_polling(stop_signals=None)
 
+# ✅ Fix per Render (Python 3.13: evita “event loop already running”)
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.get_event_loop().run_until_complete(main())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(main())
