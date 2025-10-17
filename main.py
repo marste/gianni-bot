@@ -22,7 +22,7 @@ async def sintesi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5
         )
@@ -41,7 +41,7 @@ async def approfondisci_command(update: Update, context: ContextTypes.DEFAULT_TY
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5
         )
