@@ -1,61 +1,66 @@
 import os
 import logging
-import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import openai
 
-# Configurazione logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-
-# Recupero delle chiavi API dalle variabili d'ambiente
+# ===================== CONFIG =====================
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
+if not BOT_TOKEN:
+    raise ValueError("⚠️ TELEGRAM_BOT_TOKEN non impostato!")
+if not OPENAI_API_KEY:
+    raise ValueError("⚠️ OPENAI_API_KEY non impostato!")
+
 openai.api_key = OPENAI_API_KEY
 
-# Funzione per generare il report dei mercati
-async def genera_report():
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# ===================== FUNZIONI =====================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Ciao! 🤖 GIANNI è online e in ascolto.")
+
+async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Genera un report sintetico dei mercati di oggi.
+    Solo testo in italiano, massimo 10 righe.
+    """
+    await update.message.reply_text("Generazione report in corso... ⏳")
+
     prompt = (
-        "Fornisci un breve report sintetico in italiano, massimo 10 righe, "
-        "spiegando le ragioni principali dei movimenti dei mercati finanziari di oggi. "
-        "Mantieni un linguaggio chiaro e conciso."
+        "Fornisci un breve report sintetico dei principali movimenti dei mercati finanziari di oggi. "
+        "Scrivi in italiano, linguaggio chiaro e conciso, massimo 10 righe. "
+        "Non includere valori degli indici, solo le ragioni dei movimenti principali."
     )
 
     try:
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
+            max_tokens=300,
             temperature=0.5
         )
-        testo = response.choices[0].message.content.strip()
-        return testo
+        report_text = response.choices[0].message.content.strip()
+        await update.message.reply_text(f"**Sintesi giornaliera dei mercati:**\n{report_text}", parse_mode="Markdown")
     except Exception as e:
-        logging.error(f"Errore durante la generazione del report: {e}")
-        return "Errore nella generazione del report."
+        logger.error(f"Errore durante la generazione del report: {e}")
+        await update.message.reply_text("❌ Errore durante la generazione del report.")
 
-# Handler per il comando /report
-async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Sto generando il report dei mercati...")
-    report = await genera_report()
-    await update.message.reply_text(f"**Sintesi giornaliera dei mercati:**\n{report}", parse_mode="Markdown")
-
-# Funzione principale
-async def main():
+# ===================== MAIN =====================
+def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("report", report_command))
 
-    logging.info("🤖 GIANNI è online e in ascolto...")
+    # Comandi
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("report", report))
 
-    # Avvio del bot
-    await app.run_polling(stop_signals=None)
+    logger.info("🤖 GIANNI è online e in ascolto...")
+    # Su Render NON usare asyncio.run()
+    app.run_polling(stop_signals=None)  # stop_signals=None evita conflitti con il loop già esistente
 
-# Esecuzione
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logging.info("Bot interrotto.")
+    main()
