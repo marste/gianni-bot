@@ -1,66 +1,70 @@
 import os
-import logging
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import openai
-import requests
 
-# Configurazioni
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")  # per notizie finanziarie
-
+# -------------------------------
+# Configurazione chiavi API
+# -------------------------------
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
-logging.basicConfig(level=logging.INFO)
+# -------------------------------
+# Funzioni dei comandi Telegram
+# -------------------------------
 
-# Funzione per recuperare notizie economiche recenti
-def get_market_news():
-    url = ("https://newsapi.org/v2/top-headlines?"
-           "category=business&language=it&pageSize=10&apiKey=" + NEWSAPI_KEY)
-    try:
-        resp = requests.get(url, timeout=5)
-        resp.raise_for_status()
-        articles = resp.json().get("articles", [])
-        news_text = " ".join([a["title"] + ". " + (a.get("description") or "") for a in articles])
-        return news_text
-    except Exception as e:
-        print(f"Errore recuperando notizie: {e}")
-        return ""
-
-# Funzione per generare report sintetico
-def generate_market_report(news_text):
+async def sintesi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Genera una sintesi giornaliera dei mercati."""
     prompt = (
-        "Leggi queste notizie economiche e crea un breve report in italiano, chiaro e conciso, "
-        "massimo 10 righe, spiegando le principali ragioni dei movimenti dei mercati oggi:\n\n"
-        f"{news_text}"
+        "Scrivi un breve report in italiano (max 10 righe) sui principali movimenti dei mercati di oggi. "
+        "Spiega in modo chiaro e conciso le ragioni dei movimenti economici principali, senza numeri o valori di indici."
     )
+
     try:
         response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
+            temperature=0.5,
         )
         report = response.choices[0].message.content.strip()
-        return report
     except Exception as e:
-        print(f"Errore OpenAI: {e}")
-        return "Non sono riuscito a generare il report oggi."
+        report = f"Errore durante la generazione del report: {e}"
 
-# Handler Telegram
-async def sintesi(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Sto generando la sintesi dei mercati...")
-    news = get_market_news()
-    report = generate_market_report(news)
-    await update.message.reply_text(report)
+    await update.message.reply_text(f"**Sintesi giornaliera dei mercati:**\n{report}", parse_mode="Markdown")
 
-# Avvio bot
-async def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("sintesi", sintesi))
-    print("🤖 GIANNI è online e in ascolto...")
-    await app.run_polling()
+
+async def approfondisci_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Genera un'analisi più approfondita dei mercati."""
+    prompt = (
+        "Scrivi un'analisi approfondita in italiano dei principali movimenti dei mercati di oggi. "
+        "Motiva i movimenti principali e spiega fattori economici, politici e geopolitici. "
+        "Mantieni il linguaggio chiaro e conciso."
+    )
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.5,
+        )
+        report = response.choices[0].message.content.strip()
+    except Exception as e:
+        report = f"Errore durante la generazione del report: {e}"
+
+    await update.message.reply_text(f"**Analisi approfondita dei mercati:**\n{report}", parse_mode="Markdown")
+
+
+# -------------------------------
+# Main: avvio del bot
+# -------------------------------
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # Registrazione comandi
+    app.add_handler(CommandHandler("sintesi", sintesi_command))
+    app.add_handler(CommandHandler("approfondisci", approfondisci_command))
+
+    # Avvio polling senza asyncio.run
+    app.run_polling(stop_signals=None)
