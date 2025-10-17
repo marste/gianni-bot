@@ -1,35 +1,38 @@
 import os
 import logging
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackContext, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import openai
-from fastapi import FastAPI
-from mangum import Mangum  # se vuoi adattare per AWS Lambda, opzionale
 
-# Configurazione logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+# Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Chiavi da variabili d'ambiente
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+# Chiavi da impostare su Render come variabili d'ambiente
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # es: https://gianni-bot-ijwl.onrender.com/webhook
+
+if not BOT_TOKEN:
+    logger.error("Devi impostare BOT_TOKEN nelle variabili d'ambiente!")
+    exit(1)
+if not OPENAI_API_KEY:
+    logger.error("Devi impostare OPENAI_API_KEY nelle variabili d'ambiente!")
+    exit(1)
 
 openai.api_key = OPENAI_API_KEY
 
-# Funzioni bot
+# Comandi
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🤖 Ciao! Sono GIANNI, il tuo bot finanziario.")
 
 async def sintesi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Genera un breve report sintetico sui mercati globali"""
     try:
         response = openai.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "Sei un analista finanziario sintetico."},
-                {"role": "user", "content": "Genera un breve report in italiano sui principali movimenti dei mercati di oggi (massimo 10 righe)."}
+                {"role": "user", "content": "Genera un breve report in italiano sui principali movimenti dei mercati di oggi. Linguaggio chiaro, massimo 10 righe."}
             ]
         )
         text = response.choices[0].message.content
@@ -37,27 +40,14 @@ async def sintesi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = f"Errore durante la generazione del report: {e}"
     await update.message.reply_text(text)
 
-# Creazione applicazione Telegram
-app = ApplicationBuilder().token(BOT_TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("oggi", sintesi))
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("oggi", sintesi))
 
-# Configurazione FastAPI per webhook
-fastapi_app = FastAPI()
-
-@fastapi_app.post("/webhook")
-async def webhook(update: dict):
-    telegram_update = Update.de_json(update, app.bot)
-    await app.update_queue.put(telegram_update)
-    return {"ok": True}
-
-# Avvio webhook su Telegram
-async def main():
-    await app.bot.set_webhook(WEBHOOK_URL)
-
-import uvicorn
+    logger.info("🤖 GIANNI è online e in ascolto...")
+    # run_polling blocca correttamente il loop e gestisce i segnali
+    app.run_polling(stop_signals=None)
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
-    uvicorn.run(fastapi_app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    main()
