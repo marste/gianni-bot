@@ -5,43 +5,40 @@ from newsapi import NewsApiClient
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# Logging
+# --- Logging ---
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
+# --- Token e chiave API ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")  # Chiave NewsAPI
-
+NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")
 newsapi = NewsApiClient(api_key=NEWSAPI_KEY)
 
 # --- Funzioni bot ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Ciao 👋 Sono GIANNI, il tuo analista virtuale dei mercati finanziari globali 📊\n"
-        "Comandi:\n"
-        "• /oggi → sintesi giornaliera con motivazioni dei movimenti\n"
-        "• /settimana → sintesi settimanale\n"
-        "• /mese → sintesi mensile\n"
-        "• /approfondisci → analisi dettagliata con notizie"
+        "Ciao 👋 Sono GIANNI, il tuo analista virtuale dei mercati finanziari globali 📊\n\n"
+        "Comandi disponibili:\n"
+        "• /oggi → Sintesi giornaliera con motivazioni dei movimenti\n"
+        "• /approfondisci → Analisi dettagliata con notizie economiche"
     )
 
 def get_stock_summary(ticker_symbol: str):
     ticker = yf.Ticker(ticker_symbol)
     hist = ticker.history(period="2d")
     if len(hist) < 2:
-        return "Dati insufficienti"
-    
+        return None, None
     today_close = hist['Close'][-1]
     yesterday_close = hist['Close'][-2]
     change_pct = ((today_close - yesterday_close) / yesterday_close) * 100
-    
     return today_close, change_pct
 
 def get_market_news(query: str, n=3):
-    """Restituisce titoli e brevi descrizioni delle ultime notizie"""
-    articles = newsapi.get_everything(q=query, language='en', sort_by='publishedAt', page_size=n)
+    articles = newsapi.get_everything(
+        q=query, language='en', sort_by='publishedAt', page_size=n
+    )
     news_list = []
     for a in articles['articles']:
         title = a['title']
@@ -54,8 +51,9 @@ async def oggi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nasdaq_val, nasdaq_change = get_stock_summary("^IXIC")
     euro_usd_val, euro_usd_change = get_stock_summary("EURUSD=X")
 
-    # Sintesi breve sui motivi basata sulla variazione
     def reason(change):
+        if change is None:
+            return "Dati non disponibili"
         if change > 1:
             return "Mercato in rialzo, supportato da dati economici positivi o guadagni aziendali."
         elif change < -1:
@@ -78,13 +76,12 @@ async def approfondisci(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Main ---
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("oggi", oggi))
     app.add_handler(CommandHandler("approfondisci", approfondisci))
 
     print("🤖 GIANNI è online e in ascolto...")
-    app.run_polling(stop_signals=None)
+    app.run_polling(stop_signals=None)  # Nessun asyncio.run, compatibile con Render
 
 if __name__ == "__main__":
     main()
