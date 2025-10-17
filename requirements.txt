@@ -1,4 +1,4 @@
 python-telegram-bot==20.6
-yfinance
-requests
-newsapi-python
+yfinance==0.2.40
+requests==2.31.0
+newsapi-python==0.2.7
