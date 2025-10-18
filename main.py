@@ -1,46 +1,57 @@
 import os
-import logging
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-import openai
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import aiohttp
+import logging
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+# Configura il logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-openai.api_key = OPENAI_API_KEY
-
-async def genera_report():
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Sei un analista finanziario sintetico."},
-                {"role": "user", "content": "Genera un breve report in italiano sui principali movimenti dei mercati di oggi. Linguaggio chiaro, massimo 10 righe, senza valori numerici."}
-            ]
-        )
-        return response.choices[0].message['content']
-    except Exception as e:
-        logger.error(f"Errore durante la generazione del report: {e}")
-        return "Errore durante la generazione del report."
+# Prompt predefinito
+PROMPT = "Scrivi un breve report sintetico in italiano spiegando le ragioni dei movimenti principali dei mercati di oggi. Mantieni il linguaggio chiaro e conciso, massimo 10 righe."
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Ciao! Sono GIANNI, il tuo analista virtuale dei mercati. Usa /oggi per avere il report sintetico.")
+    await update.message.reply_text("Ciao! Invia un messaggio per ricevere un report sui movimenti dei mercati di oggi.")
 
-async def oggi(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Sto generando il report dei mercati di oggi...")
-    report = await genera_report()
-    await update.message.reply_text(report)
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        # Chiama l'API di OpenAI
+        async with aiohttp.ClientSession() as session:
+            headers = {
+                "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": "gpt-4o",  # O il modello disponibile con il tuo abbonamento
+                "messages": [{"role": "user", "content": PROMPT}],
+                "max_tokens": 200
+            }
+            async with session.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    reply = data["choices"][0]["message"]["content"]
+                    await update.message.reply_text(reply)
+                else:
+                    await update.message.reply_text("Errore nella richiesta all'API. Riprova più tardi.")
+    except Exception as e:
+        logger.error(f"Errore: {e}")
+        await update.message.reply_text("Si è verificato un errore. Riprova più tardi.")
 
-# --- Main senza asyncio.run() ---
-app = ApplicationBuilder().token(BOT_TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("oggi", oggi))
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f"Update {update} caused error {context.error}")
 
-logger.info("🤖 GIANNI è online e in ascolto...")
-# Run polling direttamente, Render gestisce il loop
-app.run_polling(stop_signals=None)
+def main():
+    # Inizializza il bot con il token
+    application = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
+
+    # Aggiungi handler
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_error_handler(error_handler)
+
+    # Avvia il bot
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
